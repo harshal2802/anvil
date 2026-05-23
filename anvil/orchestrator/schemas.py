@@ -50,3 +50,21 @@ class MergeBotOutput(BaseModel):
     pr_title: str = Field(description="imperative mood, <= 70 chars")
     pr_body_markdown: str
     labels: list[str]
+
+
+class ProjectScribeOutput(BaseModel):
+    project_slug: str = Field(description="kebab-case, 2-5 words")
+    project_md: str = Field(description="full markdown body of pdd/context/project.md")
+
+
+class ConventionsScribeOutput(BaseModel):
+    conventions_md: str
+    decisions_md: str
+
+
+class PlanScribeOutput(BaseModel):
+    plan_md: str
+    phase_01_prompt_md: str
+    plan_filename: str = Field(description="PLAN-<area>.md")
+    phase_01_filename: str = Field(description="<area>-01-<phase-name>.md")
+    feature_area: str = Field(description="kebab-case subdirectory under pdd/prompts/features/")

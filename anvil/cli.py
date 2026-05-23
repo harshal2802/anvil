@@ -7,6 +7,8 @@ lives under `anvil.orchestrator` and is shared across commands.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 from anvil import __version__
@@ -51,9 +53,15 @@ def init_cmd(
         "--existing",
         help="Retrofit PDD into an existing LangGraph project (brownfield).",
     ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Parent directory for the new project. Defaults to cwd.",
+    ),
 ) -> None:
     """Scaffold a new agent project, or bring PDD discipline to an existing one."""
-    init.execute(description=description, existing=existing)
+    init.execute(description=description, existing=existing, out=out)
 
 
 @app.command("plan")

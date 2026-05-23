@@ -20,10 +20,13 @@ from dataclasses import dataclass
 from anvil.orchestrator.gemini import run_agent
 from anvil.orchestrator.prompt_loader import load_sub_agent_prompt
 from anvil.orchestrator.schemas import (
+    ConventionsScribeOutput,
     DocScribeOutput,
     EvalSmithOutput,
     MergeBotOutput,
     NodeForgeOutput,
+    PlanScribeOutput,
+    ProjectScribeOutput,
 )
 
 
@@ -135,3 +138,40 @@ async def forge_phase(phase: PhaseInput) -> PhaseOutput:
     )
     pr = await _merge_bot(phase, node, evals, adr)
     return PhaseOutput(node=node, evals=evals, adr=adr, pr=pr)
+
+
+async def run_project_scribe(description: str, today: str) -> ProjectScribeOutput:
+    spec = load_sub_agent_prompt("project_scribe")
+    user_message = spec.render(description=description, today=today)
+    return await run_agent(
+        system_instruction=spec.system_instruction,
+        user_message=user_message,
+        response_schema=ProjectScribeOutput,
+        temperature=spec.temperature,
+    )
+
+
+async def run_conventions_scribe(project_md: str, today: str) -> ConventionsScribeOutput:
+    spec = load_sub_agent_prompt("conventions_scribe")
+    user_message = spec.render(project_md=project_md, today=today)
+    return await run_agent(
+        system_instruction=spec.system_instruction,
+        user_message=user_message,
+        response_schema=ConventionsScribeOutput,
+        temperature=spec.temperature,
+    )
+
+
+async def run_plan_scribe(
+    project_md: str, description: str, today: str
+) -> PlanScribeOutput:
+    spec = load_sub_agent_prompt("plan_scribe")
+    user_message = spec.render(
+        project_md=project_md, description=description, today=today
+    )
+    return await run_agent(
+        system_instruction=spec.system_instruction,
+        user_message=user_message,
+        response_schema=PlanScribeOutput,
+        temperature=spec.temperature,
+    )
