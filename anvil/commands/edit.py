@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -12,7 +13,12 @@ from rich.console import Console
 
 from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
 from anvil.orchestrator.schemas import PlanScribeOutput
-from anvil.orchestrator.sub_agents import run_plan_scribe_scoped
+from anvil.orchestrator.sub_agents import (
+    PhaseInput,
+    PhaseOutput,
+    forge_phase,
+    run_plan_scribe_scoped,
+)
 
 console = Console()
 
@@ -61,7 +67,7 @@ def execute(change: str) -> None:
     )
 
     try:
-        asyncio.run(_scoped_plan(change, project_root, target))
+        asyncio.run(_edit_pipeline(change, project_root, target, nodes))
     except EditError as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1) from e
@@ -72,7 +78,15 @@ def execute(change: str) -> None:
         console.print(f"[red]Flash returned malformed output:[/red] {e}")
         raise SystemExit(2) from e
 
-    console.print("[dim]Phase 3 wires forge_phase — coming next.[/dim]")
+
+async def _edit_pipeline(
+    change: str,
+    project_root: Path,
+    target_node: str,
+    existing_nodes: list[NodeSummary],
+) -> None:
+    phase_prompt_path = await _scoped_plan(change, project_root, target_node)
+    await _forge(project_root, phase_prompt_path, target_node, existing_nodes)
 
 
 def _require_anvil_project(cwd: Path) -> Path:
@@ -128,7 +142,7 @@ def _ambiguity_hint(change: str, candidates: list[str]) -> str:
     )
 
 
-async def _scoped_plan(change: str, project_root: Path, target_node: str) -> None:
+async def _scoped_plan(change: str, project_root: Path, target_node: str) -> Path:
     project_md = (project_root / "pdd" / "context" / "project.md").read_text(
         encoding="utf-8"
     )
@@ -155,7 +169,8 @@ async def _scoped_plan(change: str, project_root: Path, target_node: str) -> Non
     phase_filename = re.sub(r"-01-", f"-{next_nn:02d}-", output.phase_01_filename, count=1)
     plan_filename = f"PLAN-edit-{_slugify(change)}.md"
 
-    (feature_dir / phase_filename).write_text(output.phase_01_prompt_md, encoding="utf-8")
+    phase_prompt_path = feature_dir / phase_filename
+    phase_prompt_path.write_text(output.phase_01_prompt_md, encoding="utf-8")
     (feature_dir / plan_filename).write_text(output.plan_md, encoding="utf-8")
 
     console.print(
@@ -163,7 +178,112 @@ async def _scoped_plan(change: str, project_root: Path, target_node: str) -> Non
         f"[dim]{output.feature_area}/{phase_filename}[/dim] + "
         f"[dim]{plan_filename}[/dim]"
     )
-    _ = PlanScribeOutput  # explicit dep on the schema type for Phase 3 reuse
+    _ = PlanScribeOutput  # explicit dep on the schema type for forge wiring
+    return phase_prompt_path
+
+
+async def _forge(
+    project_root: Path,
+    phase_prompt_path: Path,
+    target_node: str,
+    existing_nodes: list[NodeSummary],
+) -> None:
+    user_intent = phase_prompt_path.read_text(encoding="utf-8")
+
+    state_path = project_root / "src" / "state.py"
+    if not state_path.is_file():
+        raise EditError(
+            f"{state_path} not found — was this project scaffolded by anvil init?"
+        )
+    state_schema_source = state_path.read_text(encoding="utf-8")
+
+    conventions_path = project_root / "pdd" / "context" / "conventions.md"
+    conventions_text = (
+        conventions_path.read_text(encoding="utf-8")
+        if conventions_path.is_file()
+        else ""
+    )
+    repo_conventions_json = json.dumps({"conventions_md": conventions_text})
+
+    existing_nodes_json = json.dumps(
+        [
+            {"name": n.name, "module_path": str(n.module_path)}
+            for n in existing_nodes
+        ]
+    )
+
+    phase_input = PhaseInput(
+        user_intent=user_intent,
+        existing_nodes_json=existing_nodes_json,
+        state_schema_source=state_schema_source,
+        repo_conventions_json=repo_conventions_json,
+        next_adr_number=_next_adr_number(project_root),
+        today=date.today().isoformat(),
+    )
+
+    with console.status(
+        "[bold cyan]forge_phase[/bold cyan] running NodeForge → "
+        "(EvalSmith ∥ DocScribe) → MergeBot…"
+    ):
+        output = await forge_phase(phase_input)
+
+    _write_forge_artifacts(project_root, output, target_node)
+
+
+def _write_forge_artifacts(
+    project_root: Path, output: PhaseOutput, target_node: str
+) -> None:
+    nodes_dir = project_root / "src" / "nodes"
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+    node_dest = nodes_dir / output.node.filename
+    if node_dest.exists():
+        node_dest = nodes_dir / f"{output.node.filename}.new"
+        node_dest.write_text(output.node.module_code, encoding="utf-8")
+        console.print(
+            f"[yellow]Node already exists — wrote {output.node.filename}.new "
+            f"instead. Diff and `mv` when ready.[/yellow]"
+        )
+    else:
+        node_dest.write_text(output.node.module_code, encoding="utf-8")
+
+    eval_path = project_root / output.evals.eval_runner_filename
+    eval_path.parent.mkdir(parents=True, exist_ok=True)
+    eval_path.write_text(output.evals.eval_runner_code, encoding="utf-8")
+
+    golden_path = (
+        project_root / "pdd" / "evals" / "baselines" / f"{output.node.node_name}.jsonl"
+    )
+    golden_path.parent.mkdir(parents=True, exist_ok=True)
+    golden_path.write_text(output.evals.golden_dataset_jsonl, encoding="utf-8")
+
+    adr_path = project_root / output.adr.filename
+    adr_path.parent.mkdir(parents=True, exist_ok=True)
+    adr_path.write_text(output.adr.markdown_body, encoding="utf-8")
+
+    console.print(
+        f"\n[bold green]Done.[/bold green] Edit shipped for [bold]{target_node}[/bold]:\n"
+        f"  Node       [dim]{node_dest.relative_to(project_root)}[/dim]\n"
+        f"  Eval       [dim]{eval_path.relative_to(project_root)}[/dim]\n"
+        f"  Golden     [dim]{golden_path.relative_to(project_root)}[/dim]\n"
+        f"  ADR        [dim]{adr_path.relative_to(project_root)}[/dim]\n"
+    )
+    console.print(f"[bold]PR title preview:[/bold] {output.pr.pr_title}")
+    console.print(
+        "[dim]MergeBot would open this PR — `gh pr create` wiring is "
+        "post-hackathon.[/dim]"
+    )
+
+
+def _next_adr_number(project_root: Path) -> str:
+    adr_dir = project_root / "docs" / "adr"
+    if not adr_dir.is_dir():
+        return "001"
+    numbers = [
+        int(m.group(1))
+        for p in adr_dir.glob("*.md")
+        if (m := re.match(r"^(\d{3})", p.name))
+    ]
+    return f"{(max(numbers) + 1):03d}" if numbers else "001"
 
 
 def _next_phase_number(feature_dir: Path) -> int:
