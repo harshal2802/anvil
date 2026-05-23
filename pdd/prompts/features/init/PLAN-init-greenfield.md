@@ -7,7 +7,7 @@ description: Implementation plan for `anvil init "<sentence>"` — greenfield pr
 
 **Created:** 2026-05-23
 **Complexity:** Medium-High (3 new Flash sub-agents + new command + filesystem scaffolding + one eval)
-**Estimated prompts:** 4
+**Estimated phases:** 4
 **Time budget:** ~115 min (~2 hours to demo, ~5 min buffer — tight)
 
 ## Summary
