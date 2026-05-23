@@ -3,13 +3,14 @@ VENV   := .venv
 BIN    := $(VENV)/bin
 ANVIL  := $(BIN)/anvil
 
-.PHONY: help venv install dev test test-live demo clean reinstall
+.PHONY: help venv install dev lint test test-live demo clean reinstall
 
 help:
 	@echo "Anvil dev targets:"
 	@echo "  make venv        - create $(VENV) using $(PYTHON) -m venv --copies"
 	@echo "  make install     - install anvil + runtime deps (editable)"
 	@echo "  make dev         - install anvil + runtime + dev deps (pytest, ruff, mypy)"
+	@echo "  make lint        - run ruff check + mypy --strict on anvil/ and tests/"
 	@echo "  make test        - run unit tests (skips live Flash tests)"
 	@echo "  make test-live   - run live Flash tests (needs GOOGLE_API_KEY in .env)"
 	@echo "  make demo        - run anvil init against a sample description"
@@ -28,6 +29,10 @@ install: venv
 
 dev: venv
 	$(BIN)/uv pip install -e ".[dev]"
+
+lint: dev
+	$(BIN)/ruff check anvil/ tests/
+	$(BIN)/mypy --strict anvil/
 
 test: dev
 	$(BIN)/pytest -m "not live" -v; status=$$?; [ $$status -eq 0 ] || [ $$status -eq 5 ]
