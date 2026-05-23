@@ -1,0 +1,69 @@
+[project]
+name = "anvil-cli"
+version = "0.0.1"
+description = "A Git-native, eval-driven IDE for agent graphs. Built with Gemini 3.5 Flash."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Harshal Chourasiya", email = "harshal2802@gmail.com" }]
+keywords = ["langgraph", "agents", "gemini", "pdd", "cli", "ide"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "google-genai>=0.3",
+    "httpx>=0.27",
+    "tenacity>=8",
+    "pydantic>=2",
+    "langgraph>=0.2",
+    "langserve>=0.2",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/harshal2802/anvil"
+Issues = "https://github.com/harshal2802/anvil/issues"
+PDD = "https://github.com/harshal2802/pdd-skill"
+
+[project.scripts]
+anvil = "anvil.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anvil*"]
+
+[tool.setuptools.package-data]
+anvil = ["pdd_workflows/**/*.md", "templates/**/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
