@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from rich.console import Console
+
+from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
+from anvil.orchestrator.schemas import PlanScribeOutput
+from anvil.orchestrator.sub_agents import run_plan_scribe_scoped
 
 console = Console()
 
@@ -51,9 +57,22 @@ def execute(change: str) -> None:
 
     console.print(
         f"[bold cyan]anvil edit[/bold cyan] — change: [italic]{change}[/italic]\n"
-        f"[green]✓[/green] Target node detected: [bold]{target}[/bold]\n"
-        f"[dim]Phase 2 wires scoped PlanScribe — coming next.[/dim]"
+        f"[green]✓[/green] Target node detected: [bold]{target}[/bold]"
     )
+
+    try:
+        asyncio.run(_scoped_plan(change, project_root, target))
+    except EditError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1) from e
+    except GeminiAuthError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2) from e
+    except GeminiResponseError as e:
+        console.print(f"[red]Flash returned malformed output:[/red] {e}")
+        raise SystemExit(2) from e
+
+    console.print("[dim]Phase 3 wires forge_phase — coming next.[/dim]")
 
 
 def _require_anvil_project(cwd: Path) -> Path:
@@ -107,3 +126,55 @@ def _ambiguity_hint(change: str, candidates: list[str]) -> str:
         f'Ambiguous — rerun as: anvil edit "{change} in <node-name>". '
         f"Candidates: {', '.join(candidates)}"
     )
+
+
+async def _scoped_plan(change: str, project_root: Path, target_node: str) -> None:
+    project_md = (project_root / "pdd" / "context" / "project.md").read_text(
+        encoding="utf-8"
+    )
+    today = date.today().isoformat()
+
+    with console.status(
+        f"[bold cyan]PlanScribe[/bold cyan] scoping plan to {target_node}…"
+    ):
+        output = await run_plan_scribe_scoped(
+            project_md=project_md, change=change, target_node=target_node, today=today
+        )
+
+    phase_count = len(re.findall(r"^### Phase \d+:", output.plan_md, re.MULTILINE))
+    if phase_count != 1:
+        raise EditError(
+            f"edit is single-node only — split the change and rerun. "
+            f"PlanScribe returned {phase_count} phases."
+        )
+
+    feature_dir = project_root / "pdd" / "prompts" / "features" / output.feature_area
+    feature_dir.mkdir(parents=True, exist_ok=True)
+
+    next_nn = _next_phase_number(feature_dir)
+    phase_filename = re.sub(r"-01-", f"-{next_nn:02d}-", output.phase_01_filename, count=1)
+    plan_filename = f"PLAN-edit-{_slugify(change)}.md"
+
+    (feature_dir / phase_filename).write_text(output.phase_01_prompt_md, encoding="utf-8")
+    (feature_dir / plan_filename).write_text(output.plan_md, encoding="utf-8")
+
+    console.print(
+        f"[green]✓[/green] PlanScribe → "
+        f"[dim]{output.feature_area}/{phase_filename}[/dim] + "
+        f"[dim]{plan_filename}[/dim]"
+    )
+    _ = PlanScribeOutput  # explicit dep on the schema type for Phase 3 reuse
+
+
+def _next_phase_number(feature_dir: Path) -> int:
+    existing = [
+        int(m.group(1))
+        for p in feature_dir.glob("*-*-*.md")
+        if (m := re.search(r"-(\d{2})-", p.name))
+    ]
+    return (max(existing) + 1) if existing else 1
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:40].rstrip("-") or "change"

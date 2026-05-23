@@ -175,3 +175,12 @@ async def run_plan_scribe(
         response_schema=PlanScribeOutput,
         temperature=spec.temperature,
     )
+
+
+async def run_plan_scribe_scoped(
+    project_md: str, change: str, target_node: str, today: str
+) -> PlanScribeOutput:
+    scoped_description = f"Single-node change to `{target_node}`: {change}"
+    return await run_plan_scribe(
+        project_md=project_md, description=scoped_description, today=today
+    )
