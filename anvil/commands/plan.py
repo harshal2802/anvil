@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
+from datetime import date
 from pathlib import Path
 
 from rich.console import Console
+
+from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
+from anvil.orchestrator.sub_agents import run_plan_scribe
 
 console = Console()
 
@@ -65,6 +70,37 @@ def _check_gh_available() -> None:
         )
 
 
+async def _plan_feature(
+    feature: str,
+    project_root: Path,
+    project_md: str,
+    today: str,
+) -> None:
+    with console.status(
+        "[bold cyan]PlanScribe[/bold cyan] decomposing into phases…"
+    ):
+        output = await run_plan_scribe(
+            project_md=project_md, description=feature, today=today
+        )
+
+    feature_dir = project_root / "pdd" / "prompts" / "features" / output.feature_area
+    if feature_dir.exists() and next(feature_dir.glob("PLAN-*.md"), None) is not None:
+        raise PlanError(
+            f"Feature area '{output.feature_area}' already has a PLAN. "
+            f"Use a different feature description or remove {feature_dir} and retry."
+        )
+
+    feature_dir.mkdir(parents=True, exist_ok=True)
+    (feature_dir / output.plan_filename).write_text(output.plan_md, encoding="utf-8")
+    (feature_dir / output.phase_01_filename).write_text(
+        output.phase_01_prompt_md, encoding="utf-8"
+    )
+    console.print(
+        f"[green]✓[/green] PlanScribe → "
+        f"[dim]{output.feature_area}/{output.plan_filename}[/dim] + phase-01 prompt"
+    )
+
+
 def execute(feature: str) -> None:
     try:
         project_root = _find_project_root(Path.cwd())
@@ -76,10 +112,25 @@ def execute(feature: str) -> None:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1) from e
 
-    _ = project_md
-
     console.print(
         f"[bold cyan]anvil plan[/bold cyan] — feature: [italic]{feature}[/italic]\n"
         f"[dim]project root: {project_root}[/dim]"
     )
-    console.print("[dim]Phase 2 wires PlanScribe — coming next.[/dim]")
+
+    today = date.today().isoformat()
+    try:
+        asyncio.run(_plan_feature(feature, project_root, project_md, today))
+    except PlanError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1) from e
+    except GeminiAuthError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2) from e
+    except GeminiResponseError as e:
+        console.print(f"[red]Flash returned malformed output:[/red] {e}")
+        raise SystemExit(2) from e
+
+    console.print(
+        "\n[bold green]Done.[/bold green] Opened the PLAN. "
+        "Next: [bold]anvil plan[/bold] phase 3 (gh issues) or hand-edit the PLAN."
+    )
