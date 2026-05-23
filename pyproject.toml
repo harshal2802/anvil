@@ -79,4 +79,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-markers = ["live: hits real Gemini Flash — requires GOOGLE_API_KEY"]
+markers = [
+    "live: hits real Gemini Flash — requires GOOGLE_API_KEY",
+    "slow: spawns uvicorn or otherwise takes >0.5s — kept separate from quick unit tests",
+]
