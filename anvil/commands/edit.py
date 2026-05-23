@@ -12,6 +12,7 @@ from pathlib import Path
 from rich.console import Console
 
 from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
+from anvil.orchestrator.plan_parsing import PHASE_HEADING_RE
 from anvil.orchestrator.schemas import PlanScribeOutput
 from anvil.orchestrator.sub_agents import (
     PhaseInput,
@@ -155,7 +156,7 @@ async def _scoped_plan(change: str, project_root: Path, target_node: str) -> Pat
             project_md=project_md, change=change, target_node=target_node, today=today
         )
 
-    phase_count = len(re.findall(r"^### Phase \d+:", output.plan_md, re.MULTILINE))
+    phase_count = len(PHASE_HEADING_RE.findall(output.plan_md))
     if phase_count != 1:
         raise EditError(
             f"edit is single-node only — split the change and rerun. "
@@ -197,13 +198,16 @@ async def _forge(
         )
     state_schema_source = state_path.read_text(encoding="utf-8")
 
-    conventions_path = project_root / "pdd" / "context" / "conventions.md"
-    conventions_text = (
-        conventions_path.read_text(encoding="utf-8")
-        if conventions_path.is_file()
-        else ""
+    # Mirror anvil/commands/run.py's PhaseInput shape — NodeForge parses
+    # specific keys, not a markdown blob. See run.py:39-46 for the contract.
+    repo_conventions_json = json.dumps(
+        {
+            "python_version": "3.11",
+            "langgraph_version": "0.2",
+            "lint": "ruff",
+            "type_checker": "mypy --strict",
+        }
     )
-    repo_conventions_json = json.dumps({"conventions_md": conventions_text})
 
     existing_nodes_json = json.dumps(
         [
@@ -261,17 +265,18 @@ def _write_forge_artifacts(
     adr_path.write_text(output.adr.markdown_body, encoding="utf-8")
 
     console.print(
-        f"\n[bold green]Done.[/bold green] Edit shipped for [bold]{target_node}[/bold]:\n"
+        f"\n[bold green]Local edit shipped[/bold green] for [bold]{target_node}[/bold] "
+        f"[dim](no PR opened)[/dim]:\n"
         f"  Node       [dim]{node_dest.relative_to(project_root)}[/dim]\n"
         f"  Eval       [dim]{eval_path.relative_to(project_root)}[/dim]\n"
         f"  Golden     [dim]{golden_path.relative_to(project_root)}[/dim]\n"
         f"  ADR        [dim]{adr_path.relative_to(project_root)}[/dim]\n"
     )
-    console.print(f"[bold]PR title preview:[/bold] {output.pr.pr_title}")
     console.print(
-        "[dim]MergeBot would open this PR — `gh pr create` wiring is "
-        "post-hackathon.[/dim]"
+        "[dim]Suggested PR title (MergeBot output; `gh pr create` wiring is "
+        "post-hackathon):[/dim]"
     )
+    console.print(f"  {output.pr.pr_title}")
 
 
 def _next_adr_number(project_root: Path) -> str:

@@ -37,28 +37,24 @@ def execute() -> None:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1) from e
 
-    console.print(_render_phases(status))
-    console.print(_render_evals(status))
-    console.print(_render_prompts(status))
+    _print_phases(status)
+    _print_evals(status)
+    _print_prompts(status)
 
 
-def _render_phases(status: ProjectStatus) -> Table:
+def _print_phases(status: ProjectStatus) -> None:
+    if not status.plans:
+        _print_empty("Phases", _PHASES_EMPTY_PATH)
+        return
     table = Table(title="Phases", title_style="bold cyan", header_style="bold")
     table.add_column("Feature")
     table.add_column("PLAN")
     table.add_column("Phase")
     table.add_column("Prompt")
     table.add_column("Status")
-
-    if not status.plans:
-        table.add_row(
-            "", "", "", "", f"[dim]no data found at {_PHASES_EMPTY_PATH}[/dim]"
-        )
-        return table
-
     for plan in status.plans:
         _add_plan_rows(table, plan)
-    return table
+    console.print(table)
 
 
 def _add_plan_rows(table: Table, plan: PlanStatus) -> None:
@@ -86,37 +82,36 @@ def _add_plan_rows(table: Table, plan: PlanStatus) -> None:
         )
 
 
-def _render_evals(status: ProjectStatus) -> Table:
+def _print_evals(status: ProjectStatus) -> None:
+    if not status.evals:
+        _print_empty("Evals", _EVALS_EMPTY_PATH)
+        return
     table = Table(title="Evals", title_style="bold cyan", header_style="bold")
     table.add_column("Node")
     table.add_column("pass@1")
-
-    if not status.evals:
-        table.add_row("", f"[dim]no data found at {_EVALS_EMPTY_PATH}[/dim]")
-        return table
-
     for ev in status.evals:
         if ev.pass_rate is None:
             cell = "[dim]—[/dim]"
         else:
             cell = f"[green]✓ {ev.pass_rate:.0%}[/green]"
         table.add_row(ev.node_name, cell)
-    return table
+    console.print(table)
 
 
-def _render_prompts(status: ProjectStatus) -> Table:
+def _print_prompts(status: ProjectStatus) -> None:
+    if not status.prompts:
+        _print_empty("Prompts", _PROMPTS_EMPTY_PATH)
+        return
     table = Table(title="Prompts", title_style="bold cyan", header_style="bold")
     table.add_column("Sub-agent")
     table.add_column("Version")
     table.add_column("File")
-
-    if not status.prompts:
-        table.add_row(
-            "", "", f"[dim]no data found at {_PROMPTS_EMPTY_PATH}[/dim]"
-        )
-        return table
-
     for prompt in status.prompts:
         major, minor, patch = prompt.version
         table.add_row(prompt.name, f"v{major}.{minor}.{patch}", prompt.filename)
-    return table
+    console.print(table)
+
+
+def _print_empty(section_title: str, expected_path: str) -> None:
+    console.print(f"\n[bold cyan]{section_title}[/bold cyan]")
+    console.print(f"  [dim]no data found at {expected_path}[/dim]")

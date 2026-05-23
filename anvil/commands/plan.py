@@ -10,12 +10,16 @@ from datetime import date
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
+from anvil.orchestrator.plan_parsing import PHASE_HEADING_RE
 from anvil.orchestrator.sub_agents import run_plan_scribe
 
 console = Console()
+
+ANVIL_PHASE_LABEL = "anvil-phase"
 
 
 class PlanError(Exception):
@@ -33,14 +37,8 @@ class PhaseRef:
     body: str
 
 
-_PHASE_HEADING_RE = re.compile(
-    r"^###\s+Phase\s+(\d+):\s+(.+?)\s*$",
-    re.MULTILINE,
-)
-
-
 def _parse_phases(plan_md: str) -> list[PhaseRef]:
-    matches = list(_PHASE_HEADING_RE.finditer(plan_md))
+    matches = list(PHASE_HEADING_RE.finditer(plan_md))
     if not matches:
         return []
     phases: list[PhaseRef] = []
@@ -88,7 +86,7 @@ def _create_issue(title: str, body: str, labels: list[str]) -> str:
     result = subprocess.run(cmd, check=False, capture_output=True, text=True)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip() or "unknown error"
-        raise GhCliError(f"gh issue create failed: {stderr}")
+        raise GhCliError(f"gh issue create failed: {escape(stderr)}")
     for line in reversed((result.stdout or "").splitlines()):
         candidate = line.strip()
         if candidate:
@@ -147,7 +145,9 @@ def _check_gh_available() -> None:
 
     if version.returncode != 0:
         stderr = version.stderr.decode("utf-8", errors="replace").strip()
-        raise PlanError(f"`gh --version` failed: {stderr or 'unknown error'}")
+        raise PlanError(
+            f"`gh --version` failed: {escape(stderr) or 'unknown error'}"
+        )
 
     auth = subprocess.run(
         ["gh", "auth", "status"],
@@ -160,8 +160,29 @@ def _check_gh_available() -> None:
         detail = stderr or stdout or "unknown error"
         raise PlanError(
             "`gh` is installed but not authenticated. "
-            f"Run `gh auth login` first.\n[dim]{detail}[/dim]"
+            f"Run `gh auth login` first.\n[dim]{escape(detail)}[/dim]"
         )
+
+    _ensure_anvil_phase_label()
+
+
+def _ensure_anvil_phase_label() -> None:
+    # gh label create errors if the label already exists; swallow that
+    # path so we don't burn 3 tenacity retries per phase on first run.
+    subprocess.run(
+        [
+            "gh",
+            "label",
+            "create",
+            ANVIL_PHASE_LABEL,
+            "--description",
+            "anvil-generated phase, one PR per issue",
+            "--color",
+            "0e8a16",
+        ],
+        check=False,
+        capture_output=True,
+    )
 
 
 async def _plan_feature(
@@ -205,7 +226,7 @@ async def _plan_feature(
         f"From PLAN: pdd/prompts/features/"
         f"{output.feature_area}/{output.plan_filename}"
     )
-    labels = ["anvil-phase", output.feature_area]
+    labels = [ANVIL_PHASE_LABEL, output.feature_area]
     successes: list[tuple[PhaseRef, str]] = []
     failures: list[tuple[PhaseRef, GhCliError]] = []
 

@@ -1,4 +1,8 @@
-"""Structural smoke test for `anvil edit` — init → run → edit pipeline."""
+"""Structural smoke test for `anvil edit` — init → run → edit pipeline.
+
+Costs ~$0.10 per run (12+ Flash calls: 3 init + 4 run + 5 edit). @live-only;
+never auto-runs in `make test`. Use `make test-live` to invoke.
+"""
 
 from __future__ import annotations
 
