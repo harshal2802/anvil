@@ -58,6 +58,7 @@ anvil = [
     "pdd_workflows/**/*.md",
     "prompts/**/*.md",
     "templates/**/*",
+    "server/web/**/*",
 ]
 
 [tool.ruff]

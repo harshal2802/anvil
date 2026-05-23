@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>anvil serve</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #0d1117; color: #c9d1d9;
+      margin: 0; padding: 1.5rem; max-width: 960px; margin: 0 auto;
+    }
+    h1 { font-size: 1.1rem; color: #58a6ff; margin: 0 0 1rem 0; }
+    form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    input[type=text] {
+      flex: 1; padding: 0.5rem 0.75rem;
+      background: #161b22; color: #c9d1d9;
+      border: 1px solid #30363d; border-radius: 6px;
+      font-family: inherit;
+    }
+    button {
+      padding: 0.5rem 1rem; background: #238636; color: #fff;
+      border: 0; border-radius: 6px; cursor: pointer; font-family: inherit;
+    }
+    button:hover { background: #2ea043; }
+    #response {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      padding: 0.75rem; min-height: 8rem; max-height: 24rem; overflow-y: auto;
+      font-size: 0.85rem; white-space: pre-wrap;
+    }
+    #graph {
+      width: 100%; height: 320px; margin-top: 1rem;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    }
+    #graph g circle { fill: #30363d; stroke: #58a6ff; stroke-width: 1.5; }
+    #graph g.active circle { fill: #58a6ff; }
+    #graph g text { fill: #c9d1d9; font-size: 11px; text-anchor: middle; }
+  </style>
+</head>
+<body>
+  <h1>anvil serve — live graph</h1>
+  <form id="chat">
+    <input type="text" id="input" name="input"
+           placeholder='{"messages": []}' autocomplete="off" required>
+    <button type="submit">stream</button>
+  </form>
+  <div id="response"></div>
+  <svg id="graph" viewBox="0 0 800 320" preserveAspectRatio="xMidYMid meet"></svg>
+
+  <script>
+    const responseEl = document.getElementById("response");
+    const graphEl = document.getElementById("graph");
+    let nodeIndex = {};
+    let currentStream = null;
+
+    function renderGraph(data) {
+      graphEl.innerHTML = "";
+      nodeIndex = {};
+      const nodes = (data && data.nodes) || [];
+      const n = nodes.length || 1;
+      const stepX = 800 / (n + 1);
+      nodes.forEach((node, i) => {
+        const id = node.id || node.name || String(i);
+        const label = node.name || node.id || String(i);
+        const x = stepX * (i + 1);
+        const y = 160;
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("data-node", id);
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 22);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", x); t.setAttribute("y", y + 44);
+        t.textContent = label;
+        g.appendChild(c); g.appendChild(t);
+        graphEl.appendChild(g);
+        nodeIndex[id] = g;
+        nodeIndex[label] = g;
+      });
+    }
+
+    fetch("/graph.json")
+      .then(r => r.json())
+      .then(renderGraph)
+      .catch(() => renderGraph({ nodes: [] }));
+
+    document.getElementById("chat").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const raw = document.getElementById("input").value.trim();
+      if (!raw) return;
+      if (currentStream) currentStream.close();
+      Object.values(nodeIndex).forEach(g => g.classList.remove("active"));
+      responseEl.textContent = "";
+      const url = "/events?input=" + encodeURIComponent(raw);
+      const es = new EventSource(url);
+      currentStream = es;
+      es.onmessage = (ev) => {
+        let frame;
+        try { frame = JSON.parse(ev.data); } catch { frame = { data: ev.data }; }
+        const target = frame.node && nodeIndex[frame.node];
+        if (target) target.classList.add("active");
+        responseEl.textContent += JSON.stringify(frame) + "\n";
+        responseEl.scrollTop = responseEl.scrollHeight;
+      };
+      es.onerror = () => { es.close(); currentStream = null; };
+    });
+  </script>
+</body>
+</html>
