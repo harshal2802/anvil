@@ -22,12 +22,17 @@ Architectural choices that should not be relitigated without explicit reason. Ea
 
 ---
 
-## Decision: NodeForge runs first; other three fan out in parallel
+## Decision: Three-step sub-agent execution shape
 
 **Date:** 2026-05-23
-**What was decided:** Sequence is `NodeForge` → `asyncio.gather(EvalSmith, DocScribe, MergeBot)`. EvalSmith and DocScribe need NodeForge's output to produce meaningful artifacts.
-**Why:** True four-way parallelism is faster but produces lower-quality EvalSmith/DocScribe outputs (they'd be working from intent alone, not code). The staged shape is honest about the dependency while keeping demo latency low (~2 Flash calls in wall time, not 4).
-**Don't suggest:** True four-way parallelism for production. (For demo theatre, the UI can animate all four panels from t=0 — that's a presentation choice, not a runtime change.)
+**What was decided:** Per-phase execution runs in three steps, totalling roughly 3 Flash calls of wall time:
+
+1. **`NodeForge`** alone — produces `module_code` + metadata.
+2. **`EvalSmith` ∥ `DocScribe`** — fan out in parallel, both consume NodeForge's output.
+3. **`MergeBot`** — uses NodeForge + EvalSmith + DocScribe outputs (it needs the eval filename, the ADR filename, and the ADR title for the PR body).
+
+**Why:** Initial design said "NodeForge then three in parallel," but MergeBot genuinely depends on the other two — the PR body references the eval path and the ADR title. Pretending it can run in parallel would mean either producing a useless PR body or post-editing it after the fact. Three honest steps with two-way parallelism in step 2 is the right shape.
+**Don't suggest:** Running MergeBot in parallel with EvalSmith and DocScribe with placeholder text. (For demo theatre, the UI animates all four panels concurrently from t=0 — that's presentation, not runtime.)
 
 ---
 

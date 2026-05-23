@@ -38,3 +38,10 @@ htmlcov/
 # Local environment
 .env.local
 *.local
+
+# Scratch / experimental directories
+tmp/
+scratch/
+
+# Smoke-test output from `anvil run`
+test-output/

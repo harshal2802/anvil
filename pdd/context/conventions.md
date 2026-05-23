@@ -60,6 +60,17 @@ anvil/
 - Never construct prompts via string concatenation in code; prompts live in `pdd/prompts/`
 - Load prompt files at runtime via `importlib.resources` so they ship with the package
 
+## Prompt mirroring (pdd/ ↔ anvil/prompts/)
+
+The canonical sub-agent prompts live at `pdd/prompts/features/sub-agents/`. They are mirrored into `anvil/prompts/sub-agents/` for runtime loading via `importlib.resources` (the package data ships in the wheel; the `pdd/` tree does not).
+
+When editing a prompt:
+1. Edit the file in `pdd/prompts/features/sub-agents/` (the source of truth).
+2. Copy the change to `anvil/prompts/sub-agents/` with the same filename.
+3. Bump the version suffix on both files if the change is non-trivial (e.g., `v1.0.0` → `v1.1.0`).
+
+Drift detection is a post-hackathon item. For now, both directories are checked into git, so reviewers can see any drift in PR diffs.
+
 ## Comments and docstrings
 
 - Default to no comments; the code should be self-documenting via names
