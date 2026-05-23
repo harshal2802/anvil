@@ -46,11 +46,14 @@ Hackathon scaffold (2026-05-23). Status:
 
 - README + four-mode pitch locked
 - PDD workflows vendored at SHA `f83deb4…`
-- Typer CLI installs and dispatches to stub command modules
-- Anvil's own `pdd/` directory (this folder) — being established now
-- Orchestrator — next milestone, not yet built
+- Typer CLI dispatches to six subcommand modules
+- Anvil's own `pdd/` directory (this folder) — established and maintained
+- Dev environment pinned to Homebrew `python@3.13` with `--copies` venv; `make {dev,lint,test}` covers the loop (see [decisions.md](decisions.md))
+- **`anvil run --phase 1` shipped** — orchestrator core wires NodeForge → EvalSmith ∥ DocScribe → MergeBot
+- **`anvil init` greenfield shipped** — ProjectScribe → ConventionsScribe ∥ PlanScribe produces a Flash-tailored project
+- Remaining subcommands (`plan`, `edit`, `serve`, `status`) are stubs; per-subcommand PLANs in flight under [pdd/prompts/features/](../prompts/features/)
 
-The four sub-agent prompts under [`pdd/prompts/features/sub-agents/`](../prompts/features/sub-agents/) are the source of truth for what the orchestrator will execute when it lands.
+The seven sub-agent prompts under [`pdd/prompts/features/sub-agents/`](../prompts/features/sub-agents/) are the source of truth — four for `anvil run` per-phase work (NodeForge, EvalSmith, DocScribe, MergeBot) and three for `anvil init` greenfield (ProjectScribe, ConventionsScribe, PlanScribe).
 
 ---
 
