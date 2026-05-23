@@ -78,3 +78,12 @@ Architectural choices that should not be relitigated without explicit reason. Ea
 **What was decided:** `anvil edit "<change>"` internally runs `plan` (single-phase scope) + `run` against the targeted phase, with an extra detection step to identify which node(s) the change touches.
 **Why:** Keeps the orchestrator simple — one execution path for all multi-Flash work. Tier 3 collapses to ~1 day of work because most of the machinery exists.
 **Don't suggest:** A separate "edit" orchestrator with its own sub-agents — it would diverge from `run` and double the maintenance surface.
+
+---
+
+## Decision: Pin local Python to Homebrew `python@3.13` with `--copies` venv
+
+**Date:** 2026-05-23
+**What was decided:** The top-level [Makefile](../../Makefile) sets `PYTHON ?= /opt/homebrew/bin/python3.13` and creates `.venv` via `python -m venv --copies $(VENV)` — real binary copies, not symlinks. Owned by the prompt at [pdd/prompts/features/devex/dev-environment.v1.0.0.md](../prompts/features/devex/dev-environment.v1.0.0.md).
+**Why:** macOS framework-bundled Pythons (Xcode's `Python3.framework`, Apple's `/usr/bin/python3`) ship the interpreter via internal symlinks and reject `--copies` with *"This build of python cannot create venvs without using symlinks."* We want `--copies` so the venv is self-contained — editable installs, `sys.executable`-based tool discovery, and future container packaging all behave more predictably when `.venv/bin/python` is a real Mach-O binary rather than a symlink chain into a framework bundle. Homebrew's `python@3.13` is a plain Mach-O on `arm64-darwin`, supports `--copies` cleanly, and satisfies `requires-python = ">=3.11"`.
+**Don't suggest:** Defaulting `PYTHON` to bare `python3` (resolves to Xcode's framework Python on most macs and breaks the build), swapping to `uv venv` for this Makefile (`python-build-standalone` has the same symlink restriction as framework Python), or removing `--copies` to "just make it work" — the symlinked-venv class of bug is exactly what this pin exists to prevent.

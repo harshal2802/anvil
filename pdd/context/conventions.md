@@ -13,8 +13,17 @@ anvil/
 │   └── templates/               Starter LangGraph project templates
 ├── pdd/                         Anvil itself is a PDD project (this directory)
 ├── tests/                       pytest unit tests
-└── examples/                    Reference projects built with Anvil
+├── examples/                    Reference projects built with Anvil
+└── Makefile                     Dev-environment targets — owned by pdd/prompts/features/devex/dev-environment.v1.0.0.md
 ```
+
+## Dev environment
+
+- **Python:** default `PYTHON ?= /opt/homebrew/bin/python3.13` in the Makefile; override via env (`PYTHON=… make dev`). The pin is load-bearing — see decisions.md ("Pin local Python to Homebrew `python@3.13` with `--copies` venv").
+- **Venv:** `make venv` runs `python -m venv --copies $(VENV)` — `.venv/bin/python3.13` must be a real Mach-O binary, not a symlink. Framework Pythons (Xcode, Apple system) cannot satisfy this and will fail fast with a clear error.
+- **Install:** `make dev` for editable + dev extras, `make install` for runtime deps only. Both go through `uv pip` after the venv is built.
+- **Reset:** `make reinstall` (alias for `clean dev`) when the venv drifts. `make clean` wipes `.venv/`, `__pycache__/`, and `*.egg-info/`.
+- **All targets:** `make help`. Any new target must be listed there and added to the `.PHONY` line.
 
 ## Naming
 
