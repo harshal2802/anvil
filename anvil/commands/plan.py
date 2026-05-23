@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import subprocess
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from rich.console import Console
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from anvil.orchestrator.gemini import GeminiAuthError, GeminiResponseError
 from anvil.orchestrator.sub_agents import run_plan_scribe
@@ -17,6 +20,97 @@ console = Console()
 
 class PlanError(Exception):
     """Raised when plan setup (project root, gh availability) fails."""
+
+
+class GhCliError(PlanError):
+    """Raised when `gh issue create` exits non-zero."""
+
+
+@dataclass(frozen=True)
+class PhaseRef:
+    number: int
+    name: str
+    body: str
+
+
+_PHASE_HEADING_RE = re.compile(
+    r"^###\s+Phase\s+(\d+):\s+(.+?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _parse_phases(plan_md: str) -> list[PhaseRef]:
+    matches = list(_PHASE_HEADING_RE.finditer(plan_md))
+    if not matches:
+        return []
+    phases: list[PhaseRef] = []
+    for i, m in enumerate(matches):
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(plan_md)
+        body_slice = plan_md[body_start:body_end]
+        next_h2 = re.search(r"^##\s+", body_slice, re.MULTILINE)
+        if next_h2 is not None:
+            body_slice = body_slice[: next_h2.start()]
+        phases.append(
+            PhaseRef(
+                number=int(m.group(1)),
+                name=m.group(2).strip(),
+                body=body_slice.strip("\n"),
+            )
+        )
+    return phases
+
+
+_PRODUCES_RE = re.compile(
+    r"\*\*Produces:\*\*\s*\n(.*?)(?=\n\s*\n|\n\*\*|\Z)",
+    re.DOTALL,
+)
+_DEPENDS_RE = re.compile(r"\*\*Depends on:\*\*\s*(.+?)\s*(?:\n|$)")
+_RISK_RE = re.compile(r"\*\*Risk:\*\*\s*(.+?)\s*(?:\n|$)")
+
+
+def _extract_phase_summary(phase_body: str) -> dict[str, str]:
+    produces_match = _PRODUCES_RE.search(phase_body)
+    depends_match = _DEPENDS_RE.search(phase_body)
+    risk_match = _RISK_RE.search(phase_body)
+    return {
+        "produces": produces_match.group(1).strip() if produces_match else "",
+        "depends_on": depends_match.group(1).strip() if depends_match else "",
+        "risk": risk_match.group(1).strip() if risk_match else "",
+    }
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8), reraise=True)
+def _create_issue(title: str, body: str, labels: list[str]) -> str:
+    cmd = ["gh", "issue", "create", "--title", title, "--body", body]
+    for lbl in labels:
+        cmd.extend(["--label", lbl])
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip() or "unknown error"
+        raise GhCliError(f"gh issue create failed: {stderr}")
+    for line in reversed((result.stdout or "").splitlines()):
+        candidate = line.strip()
+        if candidate:
+            return candidate
+    raise GhCliError("gh issue create succeeded but printed no URL")
+
+
+def _build_issue_body(
+    phase: PhaseRef,
+    summary: dict[str, str],
+    back_ref: str,
+) -> str:
+    parts: list[str] = []
+    if summary["produces"]:
+        parts.append(f"**Produces:**\n{summary['produces']}")
+    if summary["depends_on"]:
+        parts.append(f"**Depends on:** {summary['depends_on']}")
+    if summary["risk"]:
+        parts.append(f"**Risk:** {summary['risk']}")
+    parts.append(back_ref)
+    parts.append("---\nOpened by `anvil plan`.")
+    return "\n\n".join(parts)
 
 
 def _find_project_root(start: Path) -> Path:
@@ -100,6 +194,54 @@ async def _plan_feature(
         f"[dim]{output.feature_area}/{output.plan_filename}[/dim] + phase-01 prompt"
     )
 
+    phases = _parse_phases(output.plan_md)
+    if not phases:
+        raise PlanError(
+            "PlanScribe emitted no parseable '### Phase N:' headings. "
+            "PLAN is on disk; open issues manually."
+        )
+
+    back_ref = (
+        f"From PLAN: pdd/prompts/features/"
+        f"{output.feature_area}/{output.plan_filename}"
+    )
+    labels = ["anvil-phase", output.feature_area]
+    successes: list[tuple[PhaseRef, str]] = []
+    failures: list[tuple[PhaseRef, GhCliError]] = []
+
+    for phase in phases:
+        summary = _extract_phase_summary(phase.body)
+        title = f"[{output.feature_area}] Phase {phase.number}: {phase.name}"
+        body = _build_issue_body(phase, summary, back_ref)
+        try:
+            url = _create_issue(title, body, labels)
+        except GhCliError as e:
+            failures.append((phase, e))
+            console.print(
+                f"[yellow]⚠[/yellow] Phase {phase.number} ({phase.name}): {e}"
+            )
+            continue
+        successes.append((phase, url))
+        console.print(f"[green]✓[/green] #{phase.number}: {url}")
+
+    console.print(
+        f"\n[bold green]Opened {len(successes)} issues[/bold green] for feature "
+        f"`{output.feature_area}`. Next: [bold]anvil run --phase 1[/bold]"
+    )
+
+    if failures:
+        console.print("\n[red]Failures:[/red]")
+        for phase, err in failures:
+            console.print(
+                f"  [red]✗[/red] Phase {phase.number} ({phase.name}): {err}"
+            )
+        console.print(
+            f"\n[red]⚠ {len(failures)} issue(s) failed — see above. "
+            "PLAN is on disk; rerun `gh issue create` manually for the failed phases."
+            "[/red]"
+        )
+        raise SystemExit(1)
+
 
 def execute(feature: str) -> None:
     try:
@@ -131,6 +273,6 @@ def execute(feature: str) -> None:
         raise SystemExit(2) from e
 
     console.print(
-        "\n[bold green]Done.[/bold green] Opened the PLAN. "
-        "Next: [bold]anvil plan[/bold] phase 3 (gh issues) or hand-edit the PLAN."
+        "\n[bold green]Done.[/bold green] PLAN + issues created. "
+        "Next: [bold]anvil run --phase 1[/bold]"
     )
