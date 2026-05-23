@@ -17,7 +17,7 @@ $ anvil init "Build a customer support agent: triage email, draft reply,
 
 # 2. Brownfield — bring PDD discipline to an existing LangGraph repo
 $ cd existing-agent-project
-$ anvil init --existing
+$ anvil init --existing                       # ← post-hackathon
 
 # 3. Conversational extension — change anything by describing the change
 $ anvil edit "Add retry-on-429 to the email_send node:
@@ -25,8 +25,16 @@ $ anvil edit "Add retry-on-429 to the email_send node:
 
 # 4. Ship it — host the graph as an API with a live chat UI
 $ anvil serve --web
-> Anvil serving graph on http://localhost:8000
-> Live graph visualization at http://localhost:8000/inspect
+> Anvil serving graph on http://127.0.0.1:8000
+> Live graph visualization at http://127.0.0.1:8000/
+```
+
+Plus two supporting commands:
+
+```bash
+$ anvil plan   "Add a refund-eligibility node"  # PlanScribe + gh issues per phase
+$ anvil run    --phase 1                         # NodeForge → EvalSmith ∥ DocScribe → MergeBot
+$ anvil status                                   # read-only project dashboard
 ```
 
 Each mode produces real artifacts — code, evals, decision records, pull requests — committed to a real git repo, openable in a real GitHub PR. The graph is the source artifact; the engineering discipline around it is the product.
@@ -99,23 +107,23 @@ Anvil runs **Gemini 3.5 Flash sub-agents** at each stage of the PDD lifecycle. E
                   │ (one per phase)          │
                   └────────────┬─────────────┘
                                ▼
-              ┌────────────────────────────────────┐
-              │ Per-phase execution loop           │
-              │                                    │
-              │  PDD: prompts → versioned .md      │
-              │           │                        │
-              │           ▼                        │
-              │  Four Flash sub-agents (parallel): │
-              │   ┌──────────┬──────────┐          │
-              │   │NodeForge │EvalSmith │          │
-              │   └──────────┴──────────┘          │
-              │   ┌──────────┬──────────┐          │
-              │   │DocScribe │MergeBot  │          │
-              │   └──────────┴──────────┘          │
-              │           │                        │
-              │           ▼                        │
-              │  PDD: review → PDD: eval → PR      │
-              └────────────────────────────────────┘
+              ┌─────────────────────────────────────────────┐
+              │ Per-phase execution loop (`anvil run`)      │
+              │                                             │
+              │  PDD: prompts → versioned .md               │
+              │           │                                 │
+              │           ▼                                 │
+              │  NodeForge                  (step 1)        │
+              │           │                                 │
+              │           ▼                                 │
+              │  EvalSmith  ∥  DocScribe    (step 2 ‖ via   │
+              │           │                  asyncio.gather)│
+              │           ▼                                 │
+              │  MergeBot                   (step 3 —       │
+              │           │                  needs eval +   │
+              │           ▼                  ADR outputs)   │
+              │  PR draft → review → ship                   │
+              └─────────────────────────────────────────────┘
 ```
 
 **Why Gemini Flash specifically:** the inner loop runs four LLM calls in parallel. The entire pipeline only feels fast — and demo-able in real time — because Flash's latency and cost profile permits a fan-out shape that would be prohibitive on slower or more expensive models. The hackathon prompt asks for something that's only possible with Flash; this is it.
@@ -133,32 +141,42 @@ These are the inner loop. Every phase of every feature passes through these four
 | **DocScribe** | An Architecture Decision Record in Michael Nygard format  |
 | **MergeBot**  | PR title, body, reviewer checklist, and labels             |
 
-Each runs in parallel via `asyncio.gather`. Total wall time ≈ time of a single Flash call.
+Three honest steps with two-way parallelism in step 2 (EvalSmith ∥ DocScribe via `asyncio.gather`). MergeBot sequences after because its PR body references the eval filename and ADR title — pretending it can run in parallel would mean either a useless PR body or post-editing it after the fact. Total wall time ≈ time of three Flash calls. See [decisions.md](pdd/context/decisions.md) "Three-step sub-agent execution shape".
 
 ---
 
-## Quick start *(work in progress — hackathon scaffold)*
+## Quick start
 
 ```bash
-# 1. Install (PyPI package name TBD — `anvil` is taken by Anvil Works)
-pip install anvil-cli
+# 1. Install — PyPI publish is post-hackathon; for now, from source:
+git clone https://github.com/harshal2802/anvil && cd anvil
+make dev                         # creates .venv with `--copies`, installs editable
 
 # 2. Set up auth
-gh auth login                    # GitHub
+gh auth login                    # GitHub (for `anvil plan` issue creation)
 export GOOGLE_API_KEY=...        # Gemini 3.5 Flash
 
 # 3. Greenfield: build a project from one sentence
 anvil init "Describe what you want the agent to do"
+cd <slug>                        # ProjectScribe-chosen directory name
 
-# 4. Or, brownfield: bring PDD to an existing LangGraph project
-cd your-existing-project
-anvil init --existing
+# 4. Ship phase 1 — NodeForge → EvalSmith ∥ DocScribe → MergeBot
+anvil run --phase 1
 
-# 5. Extend the project conversationally
+# 5. Extend conversationally
 anvil edit "Describe the change you want to make"
 
-# 6. Host it as an API with a live graph view
+# 6. Open one GitHub issue per phase
+anvil plan "Add a refund-eligibility node"
+
+# 7. Read-only dashboard
+anvil status
+
+# 8. Host as an API with a live graph view
 anvil serve --web
+> http://127.0.0.1:8000/
+
+# (post-hackathon) anvil init --existing — brownfield retrofit
 ```
 
 ---
@@ -194,15 +212,21 @@ PDD's workflow files (`scaffold`, `init`, `context`, `plan`, `prompts`, `eval`, 
 ## Roadmap
 
 **Shipped during the hackathon (May 2026):**
-- [ ] CLI: `anvil init` (greenfield + brownfield), `anvil edit`, `anvil serve`, `anvil status`
-- [ ] Stage orchestrator that executes PDD workflows via Gemini Flash
-- [ ] Four parallel Flash sub-agents (NodeForge, EvalSmith, DocScribe, MergeBot)
-- [ ] GitHub integration via `gh` CLI — issues per phase, PR per change
-- [ ] LangServe wrapper for `anvil serve`
-- [ ] Web UI with live graph visualization during execution
-- [ ] One reference workflow built live during the demo
+- [x] CLI surface: `anvil init`, `anvil plan`, `anvil run`, `anvil edit`, `anvil serve`, `anvil status` (6 subcommands)
+- [x] Stage orchestrator running PDD workflows via Gemini Flash (`anvil run --phase 1`)
+- [x] Seven Flash sub-agents: NodeForge, EvalSmith, DocScribe, MergeBot (per-phase loop) + ProjectScribe, ConventionsScribe, PlanScribe (`anvil init` greenfield)
+- [x] GitHub integration via `gh` CLI — `anvil plan` opens one issue per phase, MergeBot drafts the PR body
+- [x] LangServe wrapper for `anvil serve` (bare mode: `/invoke`, `/playground`, `/stream`)
+- [x] Web UI with live graph visualization during execution (`anvil serve --web` — vanilla htmx + SSE, no build step)
+- [x] `anvil edit` conversational extension (composition over orchestration — reuses `forge_phase` + a scoped `PlanScribe`)
+- [x] Read-only project dashboard (`anvil status` — phases, evals, prompt versions)
+- [x] PDD dogfooded throughout — every Anvil sub-agent prompt lives in versioned `pdd/prompts/features/sub-agents/`
 
-**Post-hackathon:**
+**Deferred to post-hackathon:**
+- `anvil init --existing` (brownfield retrofit)
+- `gh pr create` wiring inside `anvil run` / `anvil edit` (MergeBot drafts the PR; opening it is currently manual)
+- Flash-based target-node detection for `anvil edit` (v1 is deterministic token-overlap; the Flash escalation point is marked with a TODO)
+- LLM-as-judge quality evals over generated `project.md` and node code
 - VS Code extension
 - Multi-graph projects (sub-graphs, hierarchical agents)
 - Drift detection between vendored PDD and upstream
@@ -217,17 +241,16 @@ Checkboxes update as the build progresses through the hackathon window.
 Per the [Google I/O 2026 hackathon rules](https://cerebralvalley.ai/e/google-io-hackathon), this section makes the contribution boundary explicit. See [NOTICE.md](NOTICE.md) for the full version.
 
 **Built during the hackathon (this repo, all new code):**
-- The Anvil CLI (`anvil/cli.py`, `anvil/commands/`)
-- The stage orchestrator and the four Flash sub-agent prompts (`anvil/orchestrator/`)
-- The visual graph renderer + live execution view (`anvil/server/web/`)
-- The GitHub and LangServe integration layers
-- All example projects in `examples/`
+- The Anvil CLI (`anvil/cli.py`, `anvil/commands/`) — six subcommands wired end-to-end
+- The stage orchestrator (`anvil/orchestrator/`) and the seven Flash sub-agent prompts under `anvil/prompts/sub-agents/` (mirrored from canonical `pdd/prompts/features/sub-agents/`)
+- The LangServe wrapper + vanilla HTML / htmx / SSE live graph view (`anvil/server/`)
+- The GitHub integration layer (`gh` CLI driven from `anvil/commands/plan.py`)
 
 **Used as dependencies (not submitted as hackathon work):**
 - **[PDD (Prompt Driven Development)](https://github.com/harshal2802/pdd-skill)** — prior open-source work by the same author. Vendored at a pinned SHA; see [NOTICE.md](NOTICE.md).
 - **[LangGraph](https://github.com/langchain-ai/langgraph)** — the agent runtime Anvil generates code for.
 - **Gemini 3.5 Flash** — the model powering every sub-agent in the orchestrator.
-- **LangServe, FastAPI, Typer, react-flow** — standard libraries used as intended.
+- **LangServe, FastAPI, Typer, Rich, htmx (CDN), sse-starlette** — standard libraries used as intended. No JS framework, no build step.
 
 No code or assets were copied from other projects. All Anvil source is original work created during the hackathon window.
 
