@@ -7,7 +7,7 @@ description: Implementation plan for `anvil status` — read-only project dashbo
 
 **Created:** 2026-05-23
 **Complexity:** Low (read-only filesystem scan + Rich table render, no Flash calls)
-**Estimated prompts:** 3
+**Estimated phases:** 3
 **Time budget:** ~45 min (smallest subcommand on the roadmap)
 
 ## Summary
