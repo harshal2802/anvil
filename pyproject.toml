@@ -24,6 +24,7 @@ dependencies = [
     "pydantic>=2",
     "langgraph>=0.2",
     "langserve>=0.2",
+    "sse-starlette>=2.1",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
 ]
