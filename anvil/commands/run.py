@@ -15,7 +15,12 @@ from pathlib import Path
 from rich.console import Console
 
 from anvil.orchestrator.gemini import GeminiAuthError
-from anvil.orchestrator.sub_agents import PhaseInput, PhaseOutput, forge_phase
+from anvil.orchestrator.sub_agents import (
+    PhaseInput,
+    PhaseOutput,
+    forge_phase,
+    run_graph_scribe,
+)
 
 console = Console()
 
@@ -72,7 +77,32 @@ async def _execute_phase_1() -> None:
     output = await forge_phase(_HARDCODED_PHASE_1)
     out_dir = Path("test-output")
     _write_artifacts(output, out_dir)
+
+    project_root = Path.cwd()
+    node_module_stem = Path(output.node.filename).stem
+    node_import_path = f"src.nodes.{node_module_stem}"
+    _install_node_at_project_root(output, project_root)
+    graph = await run_graph_scribe(
+        node=output.node,
+        state_schema_source=_HARDCODED_PHASE_1.state_schema_source,
+        node_import_path=node_import_path,
+    )
+    graph_path = project_root / "graph.py"
+    graph_path.write_text(graph.graph_py_code, encoding="utf-8")
+    console.print(f"[green]✓ GraphScribe → {graph_path}[/green] ({graph.notes})\n")
+
     _print_summary(output, out_dir)
+
+
+def _install_node_at_project_root(out: PhaseOutput, project_root: Path) -> None:
+    """Write the generated node under src/nodes/ at the project root so graph.py can import it."""
+    src_dir = project_root / "src"
+    nodes_dir = src_dir / "nodes"
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+    for pkg_init in (src_dir / "__init__.py", nodes_dir / "__init__.py"):
+        if not pkg_init.exists():
+            pkg_init.write_text("", encoding="utf-8")
+    (nodes_dir / out.node.filename).write_text(out.node.module_code, encoding="utf-8")
 
 
 def _write_artifacts(out: PhaseOutput, root: Path) -> None:

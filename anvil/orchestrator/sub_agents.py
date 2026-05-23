@@ -23,6 +23,7 @@ from anvil.orchestrator.schemas import (
     ConventionsScribeOutput,
     DocScribeOutput,
     EvalSmithOutput,
+    GraphScribeOutput,
     MergeBotOutput,
     NodeForgeOutput,
     PlanScribeOutput,
@@ -138,6 +139,29 @@ async def forge_phase(phase: PhaseInput) -> PhaseOutput:
     )
     pr = await _merge_bot(phase, node, evals, adr)
     return PhaseOutput(node=node, evals=evals, adr=adr, pr=pr)
+
+
+async def run_graph_scribe(
+    node: NodeForgeOutput,
+    state_schema_source: str,
+    node_import_path: str,
+) -> GraphScribeOutput:
+    """Assemble a top-level graph.py that wires the supplied node into a runnable StateGraph."""
+    spec = load_sub_agent_prompt("graph_scribe")
+    user_message = spec.render(
+        node_name=node.node_name,
+        node_import_path=node_import_path,
+        node_module_code=node.module_code,
+        state_schema_source=state_schema_source,
+        reads_from_state=", ".join(node.reads_from_state),
+        writes_to_state=", ".join(node.writes_to_state),
+    )
+    return await run_agent(
+        system_instruction=spec.system_instruction,
+        user_message=user_message,
+        response_schema=GraphScribeOutput,
+        temperature=spec.temperature,
+    )
 
 
 async def run_project_scribe(description: str, today: str) -> ProjectScribeOutput:

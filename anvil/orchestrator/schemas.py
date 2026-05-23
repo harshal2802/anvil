@@ -68,3 +68,13 @@ class PlanScribeOutput(BaseModel):
     plan_filename: str = Field(description="PLAN-<area>.md")
     phase_01_filename: str = Field(description="<area>-01-<phase-name>.md")
     feature_area: str = Field(description="kebab-case subdirectory under pdd/prompts/features/")
+
+
+class GraphScribeOutput(BaseModel):
+    graph_py_code: str = Field(
+        description="full Python source of graph.py — defines GraphState, builds StateGraph, exports `graph = builder.compile()`"
+    )
+    entry_node: str = Field(description="snake_case name of the entry-point node")
+    notes: str = Field(
+        description="one sentence describing the assembled topology (e.g., 'single-node graph: load_inputs -> END')"
+    )

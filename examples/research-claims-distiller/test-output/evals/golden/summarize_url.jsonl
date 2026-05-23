@@ -1,0 +1,7 @@
+{"id": "happy_1", "input_state": {"url": "https://example.com/blog1"}, "expected_behavior_description": "Fetches blog content and returns a 3-sentence summary.", "category": "happy"}
+{"id": "happy_2", "input_state": {"url": "https://example.com/news1"}, "expected_behavior_description": "Fetches news content and returns a 3-sentence summary.", "category": "happy"}
+{"id": "happy_3", "input_state": {"url": "https://example.com/product1"}, "expected_behavior_description": "Fetches product content and returns a 3-sentence summary.", "category": "happy"}
+{"id": "edge_empty_url", "input_state": {"url": ""}, "expected_behavior_description": "Returns error dict for missing URL.", "category": "edge"}
+{"id": "edge_long_page", "input_state": {"url": "https://example.com/long"}, "expected_behavior_description": "Truncates content and returns a 3-sentence summary.", "category": "edge"}
+{"id": "fail_404_error", "input_state": {"url": "https://example.com/404"}, "expected_behavior_description": "Returns error dict for HTTP 404.", "category": "failure"}
+{"id": "fail_invalid_llm", "input_state": {"url": "https://example.com/blog1", "llm_invalid": true}, "expected_behavior_description": "Raises AttributeError due to invalid LLM client.", "category": "failure"}
