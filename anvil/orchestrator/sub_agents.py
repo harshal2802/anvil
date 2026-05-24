@@ -141,20 +141,44 @@ async def forge_phase(phase: PhaseInput) -> PhaseOutput:
     return PhaseOutput(node=node, evals=evals, adr=adr, pr=pr)
 
 
+@dataclass(frozen=True)
+class GraphNodeSpec:
+    """One entry in the GraphScribe node list — name, import path, and IO."""
+
+    node_name: str
+    import_path: str
+    reads_from_state: list[str]
+    writes_to_state: list[str]
+
+
+@dataclass(frozen=True)
+class GraphStateField:
+    name: str
+    type: str
+
+
 async def run_graph_scribe(
-    node: NodeForgeOutput,
-    state_schema_source: str,
-    node_import_path: str,
+    nodes: list[GraphNodeSpec],
+    state_fields: list[GraphStateField],
 ) -> GraphScribeOutput:
-    """Assemble a top-level graph.py that wires the supplied node into a runnable StateGraph."""
+    """Assemble a top-level graph.py that wires nodes as a linear chain.
+
+    Order matters: `nodes[0]` is the entry point, `nodes[-1]` connects to END.
+    """
+    if not nodes:
+        raise ValueError("run_graph_scribe requires at least one node")
     spec = load_sub_agent_prompt("graph_scribe")
+    nodes_block = "\n".join(
+        f"- node_name: {n.node_name}\n"
+        f"  import_path: {n.import_path}\n"
+        f"  reads_from_state: [{', '.join(n.reads_from_state)}]\n"
+        f"  writes_to_state: [{', '.join(n.writes_to_state)}]"
+        for n in nodes
+    )
+    state_fields_block = "\n".join(f"- {f.name}: {f.type}" for f in state_fields)
     user_message = spec.render(
-        node_name=node.node_name,
-        node_import_path=node_import_path,
-        node_module_code=node.module_code,
-        state_schema_source=state_schema_source,
-        reads_from_state=", ".join(node.reads_from_state),
-        writes_to_state=", ".join(node.writes_to_state),
+        nodes_block=nodes_block,
+        state_fields_block=state_fields_block,
     )
     return await run_agent(
         system_instruction=spec.system_instruction,

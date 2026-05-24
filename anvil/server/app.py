@@ -99,9 +99,11 @@ def _load_graph(graph_module_path: Path) -> Runnable[Any, Any]:
         )
 
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)
     except Exception as e:
+        sys.modules.pop(spec.name, None)
         logger.error("failed to import %s: %s", graph_module_path, e)
         raise GraphNotFoundError(
             f"Failed to import {graph_module_path}: {e}"
